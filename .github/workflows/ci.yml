@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   lab:
@@ -43,6 +43,16 @@ jobs:
         with:
           name: demo-capture
           path: capture/
+
+      - name: Publish capture to a temporary branch
+        if: always()
+        run: |
+          cd capture
+          git init -q -b demo-assets
+          git config user.name capture
+          git config user.email capture@users.noreply.github.com
+          git add . && git commit -q -m capture
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" demo-assets
 
       - name: Logs (on failure)
         if: failure()
