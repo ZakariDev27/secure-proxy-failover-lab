@@ -1,0 +1,23 @@
+./scripts/killswitch.sh status
+Kill switch: OFF (traffic allowed)
+Exit proxies up: 17 of 20
+  egress-01  primary  UP
+  egress-02  primary  UP
+  egress-03  primary  DOWN
+  egress-04  primary  UP
+  egress-05  primary  UP
+  egress-06  primary  UP
+  egress-07  primary  UP
+  egress-08  primary  UP
+  egress-09  primary  DOWN
+  egress-10  primary  UP
+  egress-11  primary  UP
+  egress-12  primary  UP
+  egress-13  primary  UP
+  egress-14  primary  DOWN
+  egress-15  primary  UP
+  egress-16  primary  UP
+  egress-17  reserve  UP
+  egress-18  reserve  UP
+  egress-19  reserve  UP
+  egress-20  reserve  UP

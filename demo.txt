@@ -1,0 +1,99 @@
+./scripts/demo.sh
+
+>>> Normal: traffic rotates through the 16 primary exit proxies
+20:56:36  egress-03  1ms
+20:56:36  egress-06  1ms
+20:56:36  egress-08  1ms
+20:56:37  egress-09  1ms
+20:56:37  egress-11  1ms
+20:56:37  egress-13  1ms
+20:56:38  egress-14  1ms
+20:56:38  egress-10  1ms
+20:56:38  egress-01  1ms
+20:56:39  egress-02  1ms
+20:56:39  egress-04  1ms
+20:56:39  egress-05  1ms
+
+>>> Crash one proxy (egress-03)
+20:56:40  egress-07  1ms
+20:56:40  egress-12  1ms
+20:56:41  egress-15  1ms
+20:56:41  egress-16  1ms
+20:56:42  egress-06  1004ms
+20:56:42  egress-08  1ms
+20:56:43  egress-09  1ms
+20:56:43  egress-11  1ms
+20:56:43  egress-13  1ms
+
+>>> Crash the whole primary pool: the 4 reserve proxies should take over
+20:56:48  BLOCKED    3003ms
+20:56:48  egress-20  1ms
+20:56:49  egress-19  1ms
+20:56:49  egress-20  1ms
+20:56:49  egress-19  1ms
+20:56:50  egress-20  1ms
+20:56:50  egress-19  1ms
+20:56:50  egress-20  1ms
+20:56:50  egress-19  1ms
+20:56:51  egress-20  1ms
+20:56:51  egress-19  1ms
+20:56:51  egress-20  1ms
+20:56:52  egress-19  1ms
+20:56:52  egress-20  1ms
+20:56:52  egress-19  1ms
+
+>>> Crash the reserve pool too: nothing left, so traffic is blocked
+20:56:56  BLOCKED    3002ms
+20:56:57  BLOCKED    1002ms
+
+>>> Bring all 20 proxies back
+20:57:00  BLOCKED    1ms
+20:57:00  egress-02  1ms
+20:57:00  egress-04  2ms
+20:57:01  egress-02  1ms
+20:57:01  egress-12  1ms
+20:57:01  egress-04  1ms
+20:57:02  egress-13  1ms
+20:57:02  egress-16  1ms
+20:57:02  egress-02  1ms
+20:57:02  egress-01  1ms
+20:57:03  egress-03  1ms
+20:57:03  egress-12  1ms
+20:57:03  egress-06  1ms
+20:57:04  egress-09  1ms
+20:57:04  egress-11  1ms
+20:57:04  egress-04  1ms
+20:57:05  egress-14  1ms
+20:57:05  egress-15  1ms
+20:57:05  egress-13  1ms
+20:57:06  egress-16  1ms
+20:57:06  egress-05  1ms
+20:57:06  egress-07  1ms
+20:57:06  egress-08  1ms
+20:57:07  egress-02  1ms
+20:57:07  egress-10  1ms
+20:57:07  egress-01  1ms
+
+>>> Manual kill switch ON: block everything even though the proxies are fine
+20:57:08  BLOCKED    0ms
+20:57:08  BLOCKED    0ms
+20:57:09  BLOCKED    0ms
+20:57:09  BLOCKED    0ms
+20:57:09  BLOCKED    0ms
+20:57:09  BLOCKED    0ms
+20:57:10  BLOCKED    0ms
+20:57:10  BLOCKED    0ms
+20:57:10  BLOCKED    0ms
+
+>>> Kill switch OFF
+20:57:11  egress-03  1ms
+20:57:11  egress-12  1ms
+20:57:11  egress-06  1ms
+20:57:12  egress-09  1ms
+20:57:12  egress-11  1ms
+20:57:12  egress-04  1ms
+20:57:13  egress-14  1ms
+20:57:13  egress-15  1ms
+20:57:13  egress-13  1ms
+
+>>> Done
