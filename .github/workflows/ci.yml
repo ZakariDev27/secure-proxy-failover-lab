@@ -1,0 +1,33 @@
+name: failover-test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate HAProxy configuration
+        run: make check
+
+      - name: Start the lab
+        run: make up
+
+      - name: Run failover test
+        run: make test
+
+      - name: Proxy log (on failure)
+        if: failure()
+        run: docker compose logs proxy
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

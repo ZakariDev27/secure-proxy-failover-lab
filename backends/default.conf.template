@@ -1,0 +1,16 @@
+# Minimal backend: answers with its own identity so you can see who served a request.
+# ${NODE_*} values are filled in from the container environment at start-up.
+server {
+    listen 80;
+    server_tokens off;
+    default_type application/json;
+
+    location = /healthz {
+        access_log off;
+        return 200 '{"status":"ok","node":"${NODE_NAME}"}\n';
+    }
+
+    location / {
+        return 200 '{"node":"${NODE_NAME}","pool":"${NODE_POOL}","role":"${NODE_ROLE}","path":"$uri"}\n';
+    }
+}

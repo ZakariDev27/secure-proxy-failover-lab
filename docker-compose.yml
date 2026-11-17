@@ -1,0 +1,62 @@
+name: secure-proxy-failover-lab
+
+x-backend: &backend
+  image: nginx:1.27-alpine
+  restart: "no"
+  networks: [backend]
+  volumes:
+    - ./backends/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+  security_opt:
+    - no-new-privileges:true
+  healthcheck:
+    test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+    interval: 2s
+    timeout: 2s
+    retries: 10
+
+services:
+  proxy:
+    image: haproxy:3.0-alpine
+    restart: unless-stopped
+    ports:
+      - "8080:8080"             # HTTP  (redirects to HTTPS)
+      - "8443:8443"             # HTTPS (TLS terminates here)
+      - "127.0.0.1:8404:8404"   # stats dashboard, localhost only
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./certs:/usr/local/etc/haproxy/certs:ro
+    networks: [edge, backend]
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      web1: { condition: service_healthy }
+      web2: { condition: service_healthy }
+      web-dr: { condition: service_healthy }
+      api-primary: { condition: service_healthy }
+      api-standby: { condition: service_healthy }
+
+  web1:
+    <<: *backend
+    environment: { NODE_NAME: web1, NODE_POOL: web, NODE_ROLE: active }
+
+  web2:
+    <<: *backend
+    environment: { NODE_NAME: web2, NODE_POOL: web, NODE_ROLE: active }
+
+  web-dr:
+    <<: *backend
+    environment: { NODE_NAME: web-dr, NODE_POOL: web, NODE_ROLE: backup }
+
+  api-primary:
+    <<: *backend
+    environment: { NODE_NAME: api-primary, NODE_POOL: api, NODE_ROLE: active }
+
+  api-standby:
+    <<: *backend
+    environment: { NODE_NAME: api-standby, NODE_POOL: api, NODE_ROLE: backup }
+
+networks:
+  edge: {}
+  backend:
+    internal: true   # backends have no route in or out except through the proxy
