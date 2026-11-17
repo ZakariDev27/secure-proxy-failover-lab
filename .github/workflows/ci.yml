@@ -11,42 +11,44 @@ permissions:
 jobs:
   lab:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate HAProxy configuration
+      - name: Validate gateway configuration
         run: make check
 
       - name: Start the lab
         run: make up
 
-      - name: Run failover test
+      - name: Run failover and kill switch test
         run: make test
 
-      - name: Run guided demo
+      - name: Run walkthrough
         run: |
           mkdir -p capture
           make demo | tee capture/demo.txt
 
-      - name: Screenshot the dashboard during an outage
+      - name: Screenshot the stats page during an outage
         run: |
-          docker compose stop -t 0 web1
+          docker compose stop -t 0 egress-03 egress-09 egress-14
           sleep 6
+          make status | tee capture/status.txt
           google-chrome --headless=new --no-sandbox --hide-scrollbars \
-            --window-size=1500,1150 --screenshot=capture/dashboard.png \
+            --window-size=1500,1250 --screenshot=capture/dashboard.png \
             http://localhost:8404/stats
-          docker compose start web1
 
-      - name: Upload demo capture
+      - name: Upload capture
         uses: actions/upload-artifact@v4
         with:
           name: demo-capture
           path: capture/
 
-      - name: Proxy log (on failure)
+      - name: Logs (on failure)
         if: failure()
-        run: docker compose logs proxy
+        run: |
+          docker compose ps -a
+          docker compose logs --tail 80 gateway egress-01 target
 
       - name: Tear down
         if: always()

@@ -1,62 +1,86 @@
 name: secure-proxy-failover-lab
 
-x-backend: &backend
-  image: nginx:1.27-alpine
-  restart: "no"
-  networks: [backend]
-  volumes:
-    - ./backends/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+x-hardening: &hardening
+  cap_drop: [ALL]
   security_opt:
     - no-new-privileges:true
-  healthcheck:
-    test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
-    interval: 2s
-    timeout: 2s
-    retries: 10
+
+x-egress: &egress
+  <<: *hardening
+  image: spfl-egress:local
+  pull_policy: never
+  restart: "no"
+  init: true
+  networks: [proxy, outside]
 
 services:
-  proxy:
+  # The machine whose traffic we care about. It sits on an internal network with
+  # no route out, so the gateway is its only way to reach anything.
+  client:
+    <<: *hardening
+    image: spfl-client:local
+    pull_policy: never
+    init: true
+    networks: [client]
+    environment:
+      http_proxy: http://gateway:3128
+      https_proxy: http://gateway:3128
+    depends_on: [gateway]
+
+  gateway:
+    <<: *hardening
     image: haproxy:3.0-alpine
     restart: unless-stopped
     ports:
-      - "8080:8080"             # HTTP  (redirects to HTTPS)
-      - "8443:8443"             # HTTPS (TLS terminates here)
-      - "127.0.0.1:8404:8404"   # stats dashboard, localhost only
+      - "127.0.0.1:8404:8404"   # stats page, localhost only
     volumes:
-      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-      - ./certs:/usr/local/etc/haproxy/certs:ro
-    networks: [edge, backend]
-    cap_drop: [ALL]
+      - ./gateway/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks: [client, proxy, mgmt]
+    depends_on:
+      target: { condition: service_healthy }
+
+  # Stand-in for the internet.
+  target:
+    image: nginx:1.27-alpine
+    networks: [outside]
+    volumes:
+      - ./target/default.conf:/etc/nginx/conf.d/default.conf:ro
     security_opt:
       - no-new-privileges:true
-    depends_on:
-      web1: { condition: service_healthy }
-      web2: { condition: service_healthy }
-      web-dr: { condition: service_healthy }
-      api-primary: { condition: service_healthy }
-      api-standby: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
 
-  web1:
-    <<: *backend
-    environment: { NODE_NAME: web1, NODE_POOL: web, NODE_ROLE: active }
-
-  web2:
-    <<: *backend
-    environment: { NODE_NAME: web2, NODE_POOL: web, NODE_ROLE: active }
-
-  web-dr:
-    <<: *backend
-    environment: { NODE_NAME: web-dr, NODE_POOL: web, NODE_ROLE: backup }
-
-  api-primary:
-    <<: *backend
-    environment: { NODE_NAME: api-primary, NODE_POOL: api, NODE_ROLE: active }
-
-  api-standby:
-    <<: *backend
-    environment: { NODE_NAME: api-standby, NODE_POOL: api, NODE_ROLE: backup }
+  # 20 exit proxies: 01-16 are the primary pool, 17-20 the reserve pool.
+  egress-01: { <<: *egress, environment: { NODE_NAME: egress-01 } }
+  egress-02: { <<: *egress, environment: { NODE_NAME: egress-02 } }
+  egress-03: { <<: *egress, environment: { NODE_NAME: egress-03 } }
+  egress-04: { <<: *egress, environment: { NODE_NAME: egress-04 } }
+  egress-05: { <<: *egress, environment: { NODE_NAME: egress-05 } }
+  egress-06: { <<: *egress, environment: { NODE_NAME: egress-06 } }
+  egress-07: { <<: *egress, environment: { NODE_NAME: egress-07 } }
+  egress-08: { <<: *egress, environment: { NODE_NAME: egress-08 } }
+  egress-09: { <<: *egress, environment: { NODE_NAME: egress-09 } }
+  egress-10: { <<: *egress, environment: { NODE_NAME: egress-10 } }
+  egress-11: { <<: *egress, environment: { NODE_NAME: egress-11 } }
+  egress-12: { <<: *egress, environment: { NODE_NAME: egress-12 } }
+  egress-13: { <<: *egress, environment: { NODE_NAME: egress-13 } }
+  egress-14: { <<: *egress, environment: { NODE_NAME: egress-14 } }
+  egress-15: { <<: *egress, environment: { NODE_NAME: egress-15 } }
+  egress-16: { <<: *egress, environment: { NODE_NAME: egress-16 } }
+  egress-17: { <<: *egress, environment: { NODE_NAME: egress-17 } }
+  egress-18: { <<: *egress, environment: { NODE_NAME: egress-18 } }
+  egress-19: { <<: *egress, environment: { NODE_NAME: egress-19 } }
+  egress-20: { <<: *egress, environment: { NODE_NAME: egress-20 } }
 
 networks:
-  edge: {}
-  backend:
-    internal: true   # backends have no route in or out except through the proxy
+  client:
+    internal: true          # no route out
+    ipam: { config: [{ subnet: 172.30.1.0/24 }] }
+  proxy:
+    internal: true          # gateway <-> exit proxies only
+    ipam: { config: [{ subnet: 172.30.2.0/24 }] }
+  outside: {}               # the "internet" side
+  mgmt: {}                  # only used to publish the stats page
