@@ -1,0 +1,15 @@
+# Exit proxy config. __NODE__ is replaced with the container's name at start-up.
+Port 8888
+Timeout 30
+MaxClients 200
+LogLevel Notice
+
+# Only the gateway's network may use this proxy, so it is not an open proxy.
+Allow 172.30.2.0/24
+
+# Tag outgoing requests so the lab can show which exit was used.
+ViaProxyName "__NODE__"
+AddHeader "X-Exit-Node" "__NODE__"
+
+# HTTPS tunnels only to port 443.
+ConnectPort 443
