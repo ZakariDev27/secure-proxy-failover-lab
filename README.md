@@ -2,17 +2,32 @@
 
 ![failover-test](https://github.com/ZakariDev27/secure-proxy-failover-lab/actions/workflows/ci.yml/badge.svg)
 
-What actually happens to your traffic when a server dies?
+I wanted to see what really happens to traffic when a server goes down, so I built a small lab to try it. It's one HAProxy proxy in front of five servers, all running in Docker. You kill servers and watch where the requests go.
 
-I built this lab to answer that question hands-on. It's a small network you can run on your laptop: one secure proxy out front, five servers behind it, and a script that knocks servers over on purpose to see whether anyone on the outside would notice.
+It covers traffic routing, failover, and keeping things up when parts of the network break.
 
-It covers three things I wanted to understand properly:
+## Demo
 
-- **Traffic routing:** how a proxy decides which server gets each request
-- **Failover:** how traffic moves when a server goes down, and how it moves back
-- **Network resilience:** how to keep users from ever seeing the failure
+This is the output of `make demo`, recorded from a run in GitHub Actions. Each line is one request and the name of the server that answered it.
 
-## The setup
+![Terminal recording: traffic moves from web1 and web2 to the backup server and back](docs/demo.gif)
+
+A few things you can see in there:
+
+- At the start, `web1` and `web2` take turns.
+- I stop `web1`. The next two requests take about a second instead of 3ms, but they still work. That second is the proxy giving up on `web1` and retrying on `web2`.
+- I stop `web2` as well. Now there's nothing left in the main pool, so the backup server `web-dr` picks up.
+- I start both again and a few seconds later traffic is back on `web1` and `web2`.
+
+Nothing failed. Every request got a 200.
+
+HAProxy also has a stats page. This is what it looks like with `web1` down (the red row):
+
+![HAProxy stats page showing web1 marked DOWN](docs/dashboard.png)
+
+If you want to see the full test output, it's in the [Actions tab](https://github.com/ZakariDev27/secure-proxy-failover-lab/actions/workflows/ci.yml). Open any run and look at the "Run failover test" step.
+
+## How it's laid out
 
 ```mermaid
 flowchart LR
@@ -38,99 +53,88 @@ flowchart LR
     proxy -. "only if api-primary is down" .-> api2
 ```
 
-HAProxy sits at the edge and is the only way in. Behind it are two groups of servers:
+There are two groups of servers behind the proxy.
 
-- **The web pool** has two servers sharing the load, plus a third that sits idle until both of the others are gone.
-- **The API pool** is a simple primary and standby. The standby only steps in when the primary is down.
+The web group has `web1` and `web2` sharing the load, and `web-dr` as a spare that only gets used if both of them are down.
 
-The backend servers live on a private Docker network with no ports open to your machine, so you can't reach them except through the proxy.
+The API group is just a primary and a standby. Anything starting with `/api` goes there.
 
-## Run it
+The servers are on their own Docker network with no ports exposed, so the only way to reach them is through the proxy.
 
-You'll need Docker (with Compose), `make`, `openssl` and `curl`.
+## Running it
+
+You need Docker, `make`, `openssl` and `curl`.
 
 ```bash
 git clone https://github.com/ZakariDev27/secure-proxy-failover-lab.git
 cd secure-proxy-failover-lab
 
-make up      # creates a certificate and starts everything
-make test    # breaks things and checks the results
-make down    # shuts it all down
+make up      # makes a cert and starts everything
+make demo    # the walkthrough from the recording above
+make test    # runs the checks
+make down    # stops everything
 ```
 
-Then try it:
+Once it's up you can hit it yourself:
 
 ```bash
 curl -k https://localhost:8443/
 # {"node":"web1","pool":"web","role":"active","path":"/"}
 ```
 
-Every server answers with its own name, so you always know who handled your request. Run that command a few times and you'll see it alternate between `web1` and `web2`.
+The `-k` is because the cert is self-signed. Your browser will complain about it too. That's fine for a lab.
 
-The certificate is self-signed, which is why `curl` needs `-k` and your browser will show a warning. That's expected for a lab.
+Stats page is at http://localhost:8404/stats.
 
-There's also a live dashboard at <http://localhost:8404/stats> that shows every server and whether the proxy thinks it's up or down.
-
-## Break it yourself
-
-This is the fun part. Open two terminals.
-
-In the first one, watch where requests are going:
+If you'd rather break things by hand, run `make watch` in one terminal and use these in another:
 
 ```bash
-make watch
-```
-
-In the second one, start taking servers down:
-
-```bash
-make kill NODE=web1      # web2 quietly picks up everything
-make kill NODE=web2      # now the backup, web-dr, takes over
-make revive NODE=web1    # traffic moves back on its own
+make kill NODE=web1
+make kill NODE=web2
+make revive NODE=web1
 make revive NODE=web2
 ```
 
-Keep an eye on the first terminal while you do it. You'll see the server names change, but the requests keep succeeding.
+## The test
 
-## What the test proves
+`make test` goes through the same kind of failures as the demo, but it actually checks the results and fails if something's off. It runs on every push. Roughly:
 
-`make test` runs through six scenarios and fails if any of them go wrong. It also runs automatically on every push to this repo. Here's what it showed on the first run:
+1. Normal traffic gets split between `web1` and `web2`, and `/api` goes to `api-primary`.
+2. HTTP redirects to HTTPS, the security headers are there, old TLS is refused.
+3. Kill one web server. No requests should fail.
+4. Kill the other one. The backup should take over.
+5. Bring them back. Traffic should move back.
+6. Same idea for the API: kill the primary, standby takes over, then hand back.
 
-| Scenario | Result |
-|---|---|
-| Normal operation | Requests split evenly between `web1` and `web2`. The backup stayed idle. `/api` requests all went to `api-primary`. |
-| Security checks | HTTP redirected to HTTPS, security headers present, old TLS versions refused. |
-| One web server dies | 30 out of 30 requests still succeeded. |
-| Both web servers die | The backup took over. 0 out of 40 requests lost. |
-| Web servers come back | Traffic returned to them in about 4 seconds. |
-| API primary dies, then returns | Standby took over in about 4 seconds, and handed back in about 5. |
+On the first run, failover and failback each took around 4 to 5 seconds and no requests were dropped.
 
-One thing worth knowing: losing one server out of several is easy to hide, because the proxy just retries on another one. Losing an entire pool is harder. There's a short moment before the proxy realises everything is down and switches to the backup, and requests can fail in that window. The test counts those failures and reports them rather than hiding them. On the run above it happened to be zero, but it won't always be.
+I'll be upfront about step 4 though. When a whole pool dies at once, there's a short gap before the proxy notices and switches to the backup, and a request can fail in that gap. It didn't happen in my runs, but it can. The test counts those and prints the number instead of pretending it's always zero.
 
-## How it works
+## How the failover works
 
-Everything interesting is in [`haproxy/haproxy.cfg`](haproxy/haproxy.cfg), and the file is commented throughout. The short version:
+It's all in [`haproxy/haproxy.cfg`](haproxy/haproxy.cfg). I commented the file pretty heavily, but these are the lines that matter.
 
-**The proxy keeps checking on every server.** Every two seconds it asks each one "are you okay?" Two missed answers and the server is taken out of rotation. Two good answers and it's back in.
+Health checks. The proxy pings every server every 2 seconds. Miss two and you're out, pass two and you're back in:
 
 ```haproxy
 default-server check inter 2s fall 2 rise 2 ...
 ```
 
-**It also learns from real traffic.** If two real requests in a row fail to connect, the proxy doesn't wait for the next check. It pulls that server immediately.
+It also watches real traffic, so if two real connections fail in a row it pulls the server right away without waiting for the next check:
 
 ```haproxy
 ... observe layer4 error-limit 2 on-error mark-down
 ```
 
-**Failed requests get a second chance somewhere else.** Instead of passing an error back to the user, the proxy tries a different server. This is why nobody notices when a single server dies.
+Retries. If a connection fails, try a different server instead of sending the user an error. This is where that 1 second delay in the demo comes from:
 
 ```haproxy
 retries 2
 option redispatch 1
+timeout connect 1s
 ```
 
-**Backups wait their turn.** A server marked `backup` gets nothing until every regular server in its pool is down.
+And `backup` means "don't use this unless everything else in the group is down":
 
 ```haproxy
 server web1   web1:80
@@ -138,38 +142,34 @@ server web2   web2:80
 server web-dr web-dr:80 backup
 ```
 
-## The "secure" part
+## Security stuff
 
-Failover was the main goal, but I didn't want to build it on an insecure base. So the lab also has:
+The main point was failover, but I didn't want to do it on a wide open setup, so:
 
-- **Encryption at the edge.** All traffic uses HTTPS with TLS 1.2 or newer. Plain HTTP gets redirected.
-- **Security headers** on every response, and the backend's `Server` header stripped so it doesn't advertise what software is running.
-- **Rate limiting.** Any client sending more than 200 requests in 10 seconds starts getting refused.
-- **Isolated backends.** The servers can't be reached from outside, and can't reach out either.
-- **A locked-down proxy.** It runs as a non-root user with all Linux capabilities dropped.
-- **A private dashboard.** The stats page only listens on localhost.
+- HTTPS only, TLS 1.2 and up. HTTP just redirects.
+- Security headers on responses, and the `Server` header is removed so it doesn't give away what's running.
+- Rate limit of 200 requests per 10 seconds per client.
+- Backend servers aren't reachable from outside the proxy.
+- HAProxy runs as non-root with Linux capabilities dropped.
+- The stats page only listens on localhost.
 
-## What's in the repo
+## Files
 
 ```
-.
-├── docker-compose.yml          # the whole network in one file
-├── haproxy/haproxy.cfg         # routing, health checks, failover, TLS
-├── backends/                   # the config every backend server uses
-├── scripts/
-│   ├── gen-certs.sh            # makes the self-signed certificate
-│   ├── failover-test.sh        # the automated break-it-and-check test
-│   └── watch.sh                # live view of who's answering
-├── .github/workflows/ci.yml    # runs the test on every push
-└── Makefile                    # shortcuts for all of the above
+docker-compose.yml          the whole setup
+haproxy/haproxy.cfg         routing, health checks, failover, TLS
+backends/                   nginx config the servers share
+scripts/gen-certs.sh        makes the self-signed cert
+scripts/demo.sh             the walkthrough
+scripts/failover-test.sh    the test
+scripts/watch.sh            live view of who's answering
+.github/workflows/ci.yml    runs the test on every push
 ```
 
-## What I'd add next
+## What's missing
 
-This is a learning lab, and it has some honest gaps:
+The big one: the proxy is a single point of failure. If HAProxy dies, everything's down, which is a bit ironic for a failover lab. The fix is two proxies sharing a virtual IP with keepalived. That's what I want to do next.
 
-- **The proxy itself is a single point of failure.** If HAProxy goes down, everything goes down. The fix is a second proxy with a shared virtual IP (keepalived/VRRP), and that's the next thing I want to build.
-- **The certificate is self-signed.** Fine for localhost, not for anything real.
-- **The servers don't hold any data.** Failing over is much harder when there are sessions or a database involved.
+Also the cert is self-signed, and the servers don't store anything, so I'm skipping the hard part of failover, which is what happens to sessions and data.
 
-Other ideas on the list: Prometheus and Grafana for monitoring, simulating slow servers instead of dead ones, and encrypting the traffic between the proxy and the backends too.
+Other things I might add: Prometheus/Grafana, making servers slow instead of just dead, and TLS between the proxy and the servers.
