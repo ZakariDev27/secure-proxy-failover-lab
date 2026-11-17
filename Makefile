@@ -1,4 +1,4 @@
-.PHONY: help certs up down test watch logs stats check kill revive
+.PHONY: help certs up down test demo watch logs stats check kill revive
 
 help:            ## Show this help
 	@grep -E '^[a-z-]+: .*##' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  make %-10s %s\n", $$1, $$2}'
@@ -15,6 +15,9 @@ down:            ## Stop the lab and remove containers
 
 test:            ## Run the automated failover test
 	./scripts/failover-test.sh
+
+demo:            ## Guided demo: kills servers and shows traffic moving
+	./scripts/demo.sh
 
 watch:           ## Live view of which backend serves each request
 	./scripts/watch.sh

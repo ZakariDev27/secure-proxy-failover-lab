@@ -24,6 +24,26 @@ jobs:
       - name: Run failover test
         run: make test
 
+      - name: Run guided demo
+        run: |
+          mkdir -p capture
+          make demo | tee capture/demo.txt
+
+      - name: Screenshot the dashboard during an outage
+        run: |
+          docker compose stop -t 0 web1
+          sleep 6
+          google-chrome --headless=new --no-sandbox --hide-scrollbars \
+            --window-size=1500,1150 --screenshot=capture/dashboard.png \
+            http://localhost:8404/stats
+          docker compose start web1
+
+      - name: Upload demo capture
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-capture
+          path: capture/
+
       - name: Proxy log (on failure)
         if: failure()
         run: docker compose logs proxy
