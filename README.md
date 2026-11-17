@@ -10,6 +10,8 @@ A lab for outbound traffic. A client sends everything through a gateway, and the
 
 Everything runs in Docker on one machine.
 
+**[Try the interactive demo](https://zakaridev27.github.io/secure-proxy-failover-lab/)** in your browser. You can crash proxies and flip the kill switch yourself. It's a simulation that follows the same rules as the lab, so there's nothing to install.
+
 ## Demo
 
 This is `make demo`, recorded from a run in GitHub Actions. Each line is one request from the client and the exit proxy it went out through.
@@ -186,6 +188,7 @@ scripts/killswitch.sh       the kill switches and status
 scripts/demo.sh             the walkthrough
 scripts/failover-test.sh    the test
 scripts/watch.sh            live view of where traffic goes
+docs/index.html             the interactive browser demo (simulation)
 ```
 
 ## What's missing
